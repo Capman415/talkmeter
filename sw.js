@@ -1,16 +1,18 @@
 /* Talk Meter service worker — caches the app so it keeps working offline after the first load. */
-var CACHE = 'talkmeter-v0.1.0';
+var CACHE = 'talkmeter-v0.2.0';
 var ASSETS = [
   './',
   './index.html',
   './version.json',
   './css/style.css',
   './js/audio.js',
+  './js/speechnet.js',
   './js/detector.js',
   './js/store.js',
   './js/characters.js',
   './js/app.js',
   './assets/favicon.svg',
+  './assets/speechnet.json',
   './assets/fonts/LilitaOne-Regular.ttf',
   './assets/fonts/RammettoOne-Regular.ttf'
 ];

@@ -107,6 +107,19 @@
     this.status = 'idle';
     this.debug = {};
     this.samplesProcessed = 0;
+    this.speechNet = opts.speechNet || (typeof SpeechNet !== 'undefined' ? (SpeechNet.instance || null) : null);
+    this.speechBuf = new Float32Array(8192);
+    this.speechFill = 0;
+    this.speechHopAcc = 0;
+    this.pSpeech = 0;
+    this.pMusic = 0;
+    this.pClap = 0;
+    this.pOther = 0;
+    this.speechLabel = 'quiet';
+    this.speechHeard = 'Quiet';
+    this.speechGate = false;
+    this.speechRms = 0;
+    this.speechMs = null;
   }
 
   TalkMeterEngine.prototype.setProfile = function (p) { this.profile = p; };
@@ -139,6 +152,15 @@
     this.embHist = [];
     this.teacherRunMs = 0;
     this.chatterOffMs = 0;
+    this.speechFill = 0;
+    this.speechHopAcc = 0;
+    this.pSpeech = 0;
+    this.pMusic = 0;
+    this.pClap = 0;
+    this.pOther = 0;
+    this.speechLabel = 'quiet';
+    this.speechHeard = 'Quiet';
+    this.speechGate = false;
   };
 
   TalkMeterEngine.prototype._debounceOn = function () {
@@ -169,6 +191,8 @@
     var feat = TMAudio.extractFrame(frame, TMAudio.TARGET_SR, this.prevMag);
     this.prevMag = feat._mag;
     feat._mag = undefined;
+
+    this._pushSpeechFrame(frame);
 
     var voiced = TMAudio.isVoiced(feat, this.noiseFloor, this.sensitivity);
     feat.voiced = voiced;
@@ -206,6 +230,7 @@
     } else {
       kind = 'other';
     }
+    kind = this._gateKind(kind);
     feat.kind = kind;
     feat.dist = dist;
 
@@ -318,7 +343,11 @@
       overlap: overlapCue,
       rms: feat.rms,
       f0: feat.f0,
-      f0conf: feat.f0conf
+      f0conf: feat.f0conf,
+      speechGate: this.speechGate,
+      speechLabel: this.speechLabel,
+      pSpeech: this.pSpeech,
+      heard: this.speechHeard
     };
   };
 
@@ -336,6 +365,10 @@
       voiceRough: true,
       status: this.status,
       musicLikely: this.musicLikely,
+      speechGate: this.speechGate,
+      speechLabel: this.speechLabel,
+      speechHeard: this.speechHeard,
+      pSpeech: this.pSpeech,
       sessionSec: this.sessionStartMs == null ? 0 : (this.nowMs - this.sessionStartMs) / 1000,
       teacherTalkSec: this.teacherTalkMs / 1000,
       debug: this.debug
@@ -357,6 +390,89 @@
     summary.text = formatSummary(summary);
     this.status = 'ended';
     return summary;
+  };
+
+
+  TalkMeterEngine.prototype.setSpeechNet = function (net) { this.speechNet = net; };
+
+  TalkMeterEngine.prototype._pushSpeechFrame = function (frame) {
+    var hop = TMAudio.HOP;
+    var start = frame.length - hop;
+    var space = this.speechBuf.length - this.speechFill;
+    var i;
+    if (hop <= space) {
+      for (i = 0; i < hop; i++) this.speechBuf[this.speechFill++] = frame[start + i];
+    } else {
+      // shift left by hop, then append
+      this.speechBuf.copyWithin(0, hop);
+      this.speechFill = this.speechBuf.length - hop;
+      for (i = 0; i < hop; i++) this.speechBuf[this.speechFill++] = frame[start + i];
+    }
+    this.speechHopAcc += hop;
+    if (this.speechFill >= this.speechBuf.length && this.speechHopAcc >= 1280) {
+      this.speechHopAcc = 0;
+      this._runSpeechNet();
+    }
+    if (this.speechFill < this.speechBuf.length) {
+      var energy = 0;
+      for (i = 0; i < this.speechFill; i++) energy += this.speechBuf[i] * this.speechBuf[i];
+      this.speechRms = Math.sqrt(energy / Math.max(1, this.speechFill));
+      if (this.speechRms < 0.004) {
+        this.speechLabel = 'quiet';
+        this.speechHeard = 'Quiet';
+        this.speechGate = false;
+      }
+    }
+  };
+
+  TalkMeterEngine.prototype._runSpeechNet = function () {
+    var net = this.speechNet;
+    if (!net || !net.ready || net.off) return;
+    var r = net.analyze16k(this.speechBuf);
+    this.speechRms = r.rms;
+    this.speechMs = r.ms;
+    var a = 0.4;
+    this.pSpeech += ((r.scores.speech || 0) - this.pSpeech) * a;
+    this.pMusic += ((r.scores.music || 0) - this.pMusic) * a;
+    this.pClap += ((r.scores.clapping || 0) - this.pClap) * a;
+    this.pOther += ((r.scores.other || 0) - this.pOther) * a;
+    if (r.label === 'quiet' || r.rms < (net.QUIET || 0.004)) {
+      this.speechLabel = 'quiet';
+      this.speechHeard = 'Quiet';
+      this.speechGate = false;
+      return;
+    }
+    var best = 'other', bestP = this.pOther, k, scores = { speech: this.pSpeech, music: this.pMusic, clapping: this.pClap, other: this.pOther };
+    for (k in scores) {
+      if (scores[k] > bestP) { bestP = scores[k]; best = k; }
+    }
+    this.speechLabel = best;
+    var names = { speech: 'Voices', music: 'Music', clapping: 'Clapping', other: 'Other', quiet: 'Quiet' };
+    this.speechHeard = names[best] || best;
+    var th = net.TH != null ? net.TH : 0.40;
+    var margin = net.MARGIN != null ? net.MARGIN : 0.05;
+    this.speechGate = this.pSpeech >= th && this.pSpeech >= this.pMusic + margin && this.pSpeech >= this.pClap + margin;
+  };
+
+  TalkMeterEngine.prototype._gateKind = function (kind) {
+    var net = this.speechNet;
+    if (!net || !net.ready || net.off) return kind;
+    if (kind === 'quiet') return kind;
+    // Non-speech cannot be "other voices" or an uncertain second speaker.
+    if ((kind === 'other' || kind === 'uncertain') && !this.speechGate) {
+      if (this.speechLabel === 'music') return 'music';
+      if (this.speechLabel === 'clapping') return 'clapping';
+      return 'noise';
+    }
+    // Do not start/keep a teacher match on confident non-speech (claps, music, chair noise).
+    if (kind === 'teacher' && !this.speechGate) {
+      if (this.pMusic >= 0.5 || this.pClap >= 0.5 || (this.pOther >= 0.5 && this.pSpeech < 0.25)) {
+        if (this.speechLabel === 'music') return 'music';
+        if (this.speechLabel === 'clapping') return 'clapping';
+        return 'noise';
+      }
+    }
+    return kind;
   };
 
   return {

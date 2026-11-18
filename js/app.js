@@ -1,4 +1,4 @@
-/* Talk Meter v0.1 — UI, mic, enrollment, live session. Audio never leaves the page. */
+/* Talk Meter v0.2 — UI, mic, enrollment, SpeechNet gate, live session. Audio never leaves the page. */
 (function () {
   'use strict';
 
@@ -19,7 +19,8 @@
     lastLive: null,
     lastSummary: null,
     collecting: null,
-    demo: false
+    demo: false,
+    speechNet: null
   };
 
   function $(id) { return document.getElementById(id); }
@@ -53,7 +54,8 @@
     var size = data.settings.size || 'compact';
     var pos = data.settings.position || 'bottom-right';
     var character = TMCharacters.isAvailable(data.settings.character) ? data.settings.character : 'gauge';
-    document.body.className = 'screen-' + state.screen + ' size-' + size + ' pos-' + pos;
+    var hideHear = data.settings.showHear === false;
+    document.body.className = 'screen-' + state.screen + ' size-' + size + ' pos-' + pos + (hideHear ? ' hide-hear' : '');
     document.body.setAttribute('data-character', character);
     var stage = $('character-stage');
     if (stage) TMCharacters.mount(stage, character);
@@ -293,6 +295,11 @@
     var pill = $('status-pill');
     pill.textContent = statusText(s);
     pill.setAttribute('data-status', s.status || 'listening');
+    var hear = $('hear-pill');
+    if (hear) {
+      hear.textContent = s.speechHeard || 'Quiet';
+      hear.setAttribute('data-hear', s.speechLabel || 'quiet');
+    }
   }
 
   function tickLive() {
@@ -311,7 +318,8 @@
       state.engine = new TMDetector.TalkMeterEngine({
         profile: data.profile,
         sensitivity: data.settings.sensitivity,
-        noiseFloor: data.settings.noiseFloor || 0.002
+        noiseFloor: data.settings.noiseFloor || 0.002,
+        speechNet: state.speechNet
       });
       state.engine.resetSession(0);
       showScreen('live');
@@ -324,7 +332,8 @@
       state.engine = new TMDetector.TalkMeterEngine({
         profile: data.profile,
         sensitivity: data.settings.sensitivity,
-        noiseFloor: data.settings.noiseFloor || 0.002
+        noiseFloor: data.settings.noiseFloor || 0.002,
+        speechNet: state.speechNet
       });
       state.sessionOrigin = performance.now();
       state.engine.resetSession(0);
@@ -447,6 +456,14 @@
     }
     $('sensitivity').addEventListener('input', onSens);
     $('sensitivity-live').addEventListener('input', onSens);
+    var hearBox = $('show-hear');
+    if (hearBox) {
+      hearBox.checked = TMStore.load().settings.showHear !== false;
+      hearBox.addEventListener('change', function () {
+        TMStore.updateSettings({ showHear: !!hearBox.checked });
+        applyChrome();
+      });
+    }
     $('character-select').addEventListener('change', function () {
       var id = $('character-select').value;
       if (!TMCharacters.isAvailable(id)) {
@@ -564,7 +581,8 @@
       paintLive({
         gauge: 0.58, peakGauge: 0.58, teacherActive: true, chatterActive: true,
         chatterStarts: 4, delays: [7, 8, 6, 9], usualDelaySec: 7.5,
-        voiceLabel: 'a few', voiceTag: 'a-few', status: 'chatter'
+        voiceLabel: 'a few', voiceTag: 'a-few', status: 'chatter',
+        speechHeard: 'Voices', speechLabel: 'speech', speechGate: true
       });
       return;
     }
@@ -576,7 +594,34 @@
       paintLive({
         gauge: 0.92, peakGauge: 0.92, teacherActive: true, chatterActive: true,
         chatterStarts: 9, delays: [5, 8, 8, 10], usualDelaySec: 8,
-        voiceLabel: 'lots', voiceTag: 'lots', status: 'chatter'
+        voiceLabel: 'lots', voiceTag: 'lots', status: 'chatter',
+        speechHeard: 'Voices', speechLabel: 'speech', speechGate: true
+      });
+      return;
+    }
+    if (name === 'compact-music') {
+      bd.hidden = false;
+      bd.className = 'board';
+      TMStore.updateSettings({ size: 'compact', position: 'bottom-right', showHear: true });
+      showScreen('live');
+      paintLive({
+        gauge: 0, peakGauge: 0, teacherActive: true, chatterActive: false,
+        chatterStarts: 0, delays: [], usualDelaySec: null,
+        voiceLabel: 'just you', voiceTag: 'just-you', status: 'teacher',
+        speechHeard: 'Music', speechLabel: 'music', speechGate: false
+      });
+      return;
+    }
+    if (name === 'compact-clapping') {
+      bd.hidden = false;
+      bd.className = 'board';
+      TMStore.updateSettings({ size: 'compact', position: 'bottom-right', showHear: true });
+      showScreen('live');
+      paintLive({
+        gauge: 0, peakGauge: 0, teacherActive: true, chatterActive: false,
+        chatterStarts: 0, delays: [], usualDelaySec: null,
+        voiceLabel: 'just you', voiceTag: 'just-you', status: 'teacher',
+        speechHeard: 'Clapping', speechLabel: 'clapping', speechGate: false
       });
       return;
     }
@@ -598,12 +643,25 @@
     }
   }
 
+  function loadSpeechNet() {
+    return fetch('assets/speechnet.json?v=0.2.0', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('SpeechNet missing');
+      return r.json();
+    }).then(function (M) {
+      state.speechNet = SpeechNet.load(M);
+      if (state.engine) state.engine.setSpeechNet(state.speechNet);
+    }).catch(function (err) {
+      console.warn('SpeechNet failed to load', err);
+    });
+  }
+
   function init() {
     fillCharacterSelect();
     updateEnrollPill();
     updateSensLabels();
     applyChrome();
     bind();
+    loadSpeechNet();
     listMics().catch(function () {});
     var params = new URLSearchParams(location.search);
     var shot = params.get('shot');

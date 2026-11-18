@@ -40,7 +40,8 @@
         micId: '',
         position: 'bottom-right',
         size: 'compact',
-        character: 'gauge'
+        character: 'gauge',
+        showHear: true
       },
       history: []
     };

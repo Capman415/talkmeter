@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless screenshots of Talk Meter v0.1 screens."""
+"""Headless screenshots of Talk Meter v0.2 screens."""
 import http.server
 import os
 import threading
@@ -8,7 +8,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path('/workspace/talkmeter')
-OUT = Path('/workspace/previews/talkmeter/v0.1')
+OUT = Path('/workspace/previews/talkmeter/v0.2')
 PORT = 8765
 
 SHOTS = [
@@ -17,6 +17,8 @@ SHOTS = [
     ('compact-quiet', 'compact-quiet.png', {'width': 1920, 'height': 1080}),
     ('compact-few', 'compact-few.png', {'width': 1920, 'height': 1080}),
     ('compact-lots', 'compact-lots.png', {'width': 1920, 'height': 1080}),
+    ('compact-music', 'compact-music.png', {'width': 1920, 'height': 1080}),
+    ('compact-clapping', 'compact-clapping.png', {'width': 1920, 'height': 1080}),
     ('summary', 'summary.png', {'width': 1400, 'height': 900}),
 ]
 

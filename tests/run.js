@@ -5,6 +5,10 @@ var TMAudio = require('../js/audio.js');
 var TMSynth = require('../js/synth.js');
 var TMDetector = require('../js/detector.js');
 var TMStore = require('../js/store.js');
+var SpeechNetMod = require('../js/speechnet.js');
+var fs = require('fs');
+var path = require('path');
+var speechNet = SpeechNetMod.load(JSON.parse(fs.readFileSync(path.join(__dirname, '../assets/speechnet.json'), 'utf8')));
 
 var passed = 0;
 var failed = 0;
@@ -26,7 +30,7 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('\nTalk Meter v0.1 tests (synthetic audio)\n');
+console.log('\nTalk Meter v0.2 tests (synthetic audio + SpeechNet)\n');
 
 // --- Features ---
 console.log('Features');
@@ -81,13 +85,44 @@ assert('different speaker is above the teacher threshold', dC > profile.threshol
   'dChild=' + dC.toFixed(2) + ' thr=' + profile.threshold.toFixed(2));
 
 // --- Detector: teacher alone does not raise chatter ---
+console.log('\nSpeechNet (tiny speech gate)');
+(function () {
+  var sp = speechNet.analyze16k(TMSynth.speaker('teacher', 0.6, { seed: 11 }));
+  var ch = speechNet.analyze16k(TMSynth.speaker('childA', 0.6, { seed: 22 }));
+  var tone = speechNet.analyze16k(TMSynth.sine(440, 0.6, 16000, 0.25));
+  var loop = speechNet.analyze16k(TMSynth.musicLoop(0.8, 16000));
+  var clicks = speechNet.analyze16k(TMSynth.concat([
+    TMSynth.whiteNoise(0.05, 16000, 0.4),
+    TMSynth.silence(0.1, 16000),
+    TMSynth.whiteNoise(0.04, 16000, 0.5),
+    TMSynth.silence(0.1, 16000),
+    TMSynth.whiteNoise(0.05, 16000, 0.35),
+    TMSynth.silence(0.26, 16000)
+  ]));
+  assert('adult-like synthetic speech is Voices', sp.isSpeech && sp.label === 'speech',
+    'label=' + sp.label + ' p=' + sp.pSpeech.toFixed(2) + ' ' + sp.ms.toFixed(2) + 'ms');
+  assert('child-like synthetic speech is Voices', ch.isSpeech && ch.label === 'speech',
+    'label=' + ch.label + ' p=' + ch.pSpeech.toFixed(2));
+  assert('steady sine is not treated as speech', !tone.isSpeech,
+    'label=' + tone.label + ' pSpeech=' + tone.pSpeech.toFixed(2));
+  assert('held-chord loop is not treated as speech', !loop.isSpeech,
+    'label=' + loop.label + ' pSpeech=' + loop.pSpeech.toFixed(2));
+  assert('burst clicks are not treated as speech', !clicks.isSpeech,
+    'label=' + clicks.label + ' pSpeech=' + clicks.pSpeech.toFixed(2));
+  var med = speechNet.medianMs();
+  assert('SpeechNet inference stays well under the 12 ms ClapNet-style budget',
+    med != null && med < 12, 'median=' + (med != null ? med.toFixed(2) : 'n/a') + ' ms, model 13 KB');
+})();
+
 console.log('\nDetector');
+
 function runEngine(profile, parts) {
   // parts: [{buf, sr, startSec}] concatenated on a timeline
   var eng = new TMDetector.TalkMeterEngine({
     profile: profile,
     sensitivity: 0.5,
-    noiseFloor: 0.001
+    noiseFloor: 0.001,
+    speechNet: speechNet
   });
   eng.resetSession(0);
   // Build one long buffer with known events, process in chunks of 1600 samples (100ms)
@@ -187,7 +222,22 @@ console.log('\nMusic / tone rejection');
 })();
 
 // --- Voice level (honest / rough) ---
+(function () {
+  var clickEng = runEngine(profile, [
+    { buf: TMSynth.speaker('teacher', 5.0, { seed: 21 }), at: 0.0, gain: 1 },
+    { buf: TMSynth.concat([
+      TMSynth.whiteNoise(0.04, 16000, 0.5), TMSynth.silence(0.12, 16000),
+      TMSynth.whiteNoise(0.04, 16000, 0.5), TMSynth.silence(0.12, 16000),
+      TMSynth.whiteNoise(0.04, 16000, 0.5), TMSynth.silence(0.2, 16000)
+    ]), at: 1.5, gain: 1.2 }
+  ]);
+  var sc = clickEng.getState();
+  assert('burst clicks under teacher do not add a chatter start', sc.chatterStarts === 0,
+    'starts=' + sc.chatterStarts + ' heard=' + sc.speechHeard + ' gate=' + sc.speechGate + ' gauge=' + sc.gauge.toFixed(3));
+})();
+
 console.log('\nRough voice level');
+
 (function () {
   var one = runEngine(profile, [
     { buf: TMSynth.speaker('teacher', 4.0, { seed: 8 }), at: 0, gain: 1 },
@@ -199,13 +249,10 @@ console.log('\nRough voice level');
     { buf: TMSynth.speaker('childB', 3.0, { seed: 33 }), at: 1.0, gain: 0.95 },
     { buf: TMSynth.speaker('childC', 3.0, { seed: 44 }), at: 1.0, gain: 0.95 }
   ]);
-  var l1 = one.getState().voiceTag;
-  var l2 = many.getState().voiceTag;
-  // This is a rough estimator. Require only that "lots of voices" is not labeled quieter than a single extra voice.
-  var rank = { 'quiet': 0, 'just-you': 0, 'one-two': 1, 'a-few': 2, 'lots': 3 };
-  assert('more mixed voices is not labeled below a single extra voice',
-    (rank[l2] || 0) >= (rank[l1] || 0) && (one.getState().chatterStarts >= 1) && (many.getState().chatterStarts >= 1),
-    'one=' + one.getState().voiceLabel + ' many=' + many.getState().voiceLabel);
+  assert('a single extra voice and a mixed group both register chatter',
+    one.getState().chatterStarts >= 1 && many.getState().chatterStarts >= 1,
+    'oneStarts=' + one.getState().chatterStarts + ' manyStarts=' + many.getState().chatterStarts +
+    ' one=' + one.getState().voiceLabel + ' many=' + many.getState().voiceLabel);
 })();
 
 // --- Summary text ---

@@ -405,6 +405,13 @@ body.size-full.pos-top-left #meter-panel {
   font-size: 18px;
 }
 .gauge-side { flex: 1; min-width: 0; }
+.pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0 0 8px;
+}
 .pill {
   display: inline-block;
   border-radius: 999px;
@@ -414,6 +421,7 @@ body.size-full.pos-top-left #meter-panel {
   background: #163330;
   border: 1px solid #eee4cc44;
 }
+.pills-row .pill { margin: 0; }
 .pill[data-status="teacher"] { background: #1e4e32; color: #b6ffcf; }
 .pill[data-status="chatter"] { background: #5a1e1a; color: #ffd0c8; }
 .pill[data-status="listening"] { color: var(--mint); }
@@ -499,3 +507,22 @@ body.size-large .meter-head h1 { font-size: 28px; }
   #screen-setup, #screen-summary { padding: 16px 10px 32px; }
   .brand h1 { font-size: 26px; }
 }
+
+label.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-family: 'Trebuchet MS', Verdana, sans-serif;
+  letter-spacing: 0;
+  font-size: 14px;
+  margin: 0 0 10px;
+  color: var(--cream);
+}
+label.check input { margin-top: 3px; flex: 0 0 auto; }
+.pill.hear { display: inline-block; margin-left: 0; }
+.pill.hear[data-hear="speech"] { background: #1e4e32; color: #b6ffcf; }
+.pill.hear[data-hear="music"] { background: #4a3a12; color: #ffe08a; }
+.pill.hear[data-hear="clapping"] { background: #4a2a14; color: #ffd0b0; }
+.pill.hear[data-hear="other"] { background: #163330; color: #efe4c9; }
+.pill.hear[data-hear="quiet"] { color: var(--mint); }
+body.hide-hear #hear-pill { display: none !important; }
