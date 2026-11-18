@@ -1,4 +1,4 @@
-/* SpeechNet v0.2 — tiny int8 MLP speech gate.
+/* SpeechNet v0.3 — tiny int8 MLP speech gate.
    Same recipe as Level 4 ClapNet: plain JS, vendored JSON weights, no libraries,
    nothing leaves the device. Input is 512 ms at 16 kHz. */
 (function (root, factory) {
@@ -27,6 +27,7 @@
     this.hw = null;
     this.re = null;
     this.im = null;
+    this.baseTH = 0.40;
     this.TH = 0.40;
     this.MARGIN = 0.05;
     this.QUIET = 0.004;
@@ -103,6 +104,11 @@
     this.re = new Float64Array(NFFT);
     this.im = new Float64Array(NFFT);
     this.classes = M.classes.slice();
+    if (M.th != null && isFinite(M.th)) {
+      this.baseTH = +M.th;
+      this.TH = +M.th;
+    }
+    if (M.margin != null && isFinite(M.margin)) this.MARGIN = +M.margin;
     this.ready = true;
     this.off = false;
     return this;
@@ -290,6 +296,64 @@
     }
     var meanStd = sumStd / NMEL;
     return meanStd < 0.18;
+  };
+
+  SpeechNet.prototype.setThreshold = function (th) {
+    var cap = 0.70, base = this.baseTH != null ? this.baseTH : 0.40;
+    if (th == null || !isFinite(th)) {
+      this.TH = base;
+      return this.TH;
+    }
+    this.TH = Math.max(base, Math.min(cap, +th));
+    return this.TH;
+  };
+
+  SpeechNet.roomThresholdFromScores = function (pSpeechList, opts) {
+    opts = opts || {};
+    var base = opts.baseTh != null ? opts.baseTh : 0.40;
+    var cap = opts.cap != null ? opts.cap : 0.70;
+    var margin = opts.margin != null ? opts.margin : 0.10;
+    var arr = [];
+    var i;
+    for (i = 0; i < (pSpeechList || []).length; i++) arr.push(+pSpeechList[i] || 0);
+    arr.sort(function (a, b) { return a - b; });
+    var p95 = 0;
+    if (arr.length) {
+      var idx = Math.min(arr.length - 1, Math.max(0, Math.ceil(0.95 * arr.length) - 1));
+      p95 = arr[idx];
+    }
+    var speechTh = Math.max(base, Math.min(cap, p95 + margin));
+    return { speechTh: speechTh, p95Speech: p95, windows: arr.length, baseTh: base };
+  };
+
+  SpeechNet.prototype.adaptFromRoom = function (samples, sr, opts) {
+    opts = opts || {};
+    sr = sr || SR;
+    var base = opts.baseTh != null ? opts.baseTh : (this.baseTH != null ? this.baseTH : 0.40);
+    var winSrc = Math.max(1, Math.round(WIN * sr / SR));
+    var hopSrc = Math.max(1, Math.round(winSrc / 2));
+    var scores = [];
+    var rmses = [];
+    var i;
+    if (!samples || !samples.length) {
+      return { speechTh: base, p95Speech: 0, noiseFloor: 0.002, windows: 0 };
+    }
+    for (i = 0; i + winSrc <= samples.length; i += hopSrc) {
+      var slice = samples.subarray ? samples.subarray(i, i + winSrc) : samples.slice(i, i + winSrc);
+      var r = this.analyze(slice, sr);
+      scores.push(r.pSpeech || 0);
+      rmses.push(r.rms || 0);
+    }
+    var adapted = SpeechNet.roomThresholdFromScores(scores, { baseTh: base, cap: opts.cap, margin: opts.margin });
+    rmses.sort(function (a, b) { return a - b; });
+    var floor = 0.002;
+    if (rmses.length) {
+      var fi = Math.min(rmses.length - 1, Math.max(0, Math.floor(0.8 * rmses.length)));
+      floor = Math.max(0.0003, rmses[fi]);
+    }
+    adapted.noiseFloor = floor;
+    this.setThreshold(adapted.speechTh);
+    return adapted;
   };
 
   SpeechNet.prototype._note = function (ms) {

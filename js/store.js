@@ -41,7 +41,11 @@
         position: 'bottom-right',
         size: 'compact',
         character: 'gauge',
-        showHear: true
+        showHear: true,
+        roomSpeechTh: null,
+        roomP95Speech: null,
+        roomLearnedAt: null,
+        roomWindows: null
       },
       history: []
     };

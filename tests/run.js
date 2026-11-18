@@ -30,7 +30,7 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('\nTalk Meter v0.2 tests (synthetic audio + SpeechNet)\n');
+console.log('\nTalk Meter v0.3 tests (synthetic audio + SpeechNet)\n');
 
 // --- Features ---
 console.log('Features');
@@ -87,7 +87,7 @@ assert('different speaker is above the teacher threshold', dC > profile.threshol
 // --- Detector: teacher alone does not raise chatter ---
 console.log('\nSpeechNet (tiny speech gate)');
 (function () {
-  var sp = speechNet.analyze16k(TMSynth.speaker('teacher', 0.6, { seed: 11 }));
+  var sp = speechNet.analyze16k(TMSynth.speaker('teacher', 1.2, { seed: 11 }));
   var ch = speechNet.analyze16k(TMSynth.speaker('childA', 0.6, { seed: 22 }));
   var tone = speechNet.analyze16k(TMSynth.sine(440, 0.6, 16000, 0.25));
   var loop = speechNet.analyze16k(TMSynth.musicLoop(0.8, 16000));
@@ -110,8 +110,41 @@ console.log('\nSpeechNet (tiny speech gate)');
   assert('burst clicks are not treated as speech', !clicks.isSpeech,
     'label=' + clicks.label + ' pSpeech=' + clicks.pSpeech.toFixed(2));
   var med = speechNet.medianMs();
+  var bytes = fs.statSync(path.join(__dirname, '../assets/speechnet.json')).size;
   assert('SpeechNet inference stays well under the 12 ms ClapNet-style budget',
-    med != null && med < 12, 'median=' + (med != null ? med.toFixed(2) : 'n/a') + ' ms, model 13 KB');
+    med != null && med < 12 && bytes < 100000,
+    'median=' + (med != null ? med.toFixed(2) : 'n/a') + ' ms, model ' + Math.round(bytes / 1024) + ' KB');
+})();
+
+console.log('\nLearn my room');
+(function () {
+  var formula = SpeechNetMod.SpeechNet.roomThresholdFromScores([0, 0.01, 0.02, 0.04, 0.03], { baseTh: 0.40, margin: 0.10 });
+  assert('a quiet room keeps the usual voice threshold',
+    formula.speechTh === 0.40 && formula.p95Speech < 0.2,
+    'th=' + formula.speechTh + ' p95=' + formula.p95Speech);
+  var high = SpeechNetMod.SpeechNet.roomThresholdFromScores([0.55, 0.58, 0.62, 0.60, 0.59], { baseTh: 0.40, margin: 0.10 });
+  assert('a room the model confuses for speech raises the threshold',
+    high.speechTh > 0.40 && high.speechTh <= 0.70,
+    'th=' + high.speechTh.toFixed(2) + ' p95=' + high.p95Speech.toFixed(2));
+  var cap = SpeechNetMod.SpeechNet.roomThresholdFromScores([0.99, 0.99, 0.99], { baseTh: 0.40, cap: 0.70, margin: 0.10 });
+  assert('the adapted threshold is capped', cap.speechTh === 0.70, 'th=' + cap.speechTh);
+  var before = speechNet.TH;
+  speechNet.setThreshold(0.40);
+  var quiet = TMSynth.whiteNoise(2.0, 16000, 0.002);
+  var adapted = speechNet.adaptFromRoom(quiet, 16000, { baseTh: 0.40 });
+  assert('Learn my room on quiet noise returns numbers only, close to the default threshold',
+    adapted.windows >= 4 && adapted.speechTh <= 0.50 && adapted.samples == null && !adapted.audio,
+    'th=' + adapted.speechTh.toFixed(2) + ' windows=' + adapted.windows + ' floor=' + Number(adapted.noiseFloor).toFixed(5));
+  speechNet.setThreshold(before);
+  var mem = TMStore._memoryStorage();
+  var prev = TMStore.load;
+  TMStore._setStorage(mem);
+  TMStore.updateSettings({ roomSpeechTh: 0.52, roomP95Speech: 0.42, roomLearnedAt: '2026-11-18T12:00:00.000Z', roomWindows: 58 });
+  var s = TMStore.load();
+  assert('room profile stores numeric thresholds and no audio',
+    s.settings.roomSpeechTh === 0.52 && !s.settings.samples && !s.settings.audio && !TMStore.profileHasAudio(s.profile),
+    'th=' + s.settings.roomSpeechTh);
+  TMStore._setStorage(typeof localStorage !== 'undefined' ? localStorage : TMStore._memoryStorage());
 })();
 
 console.log('\nDetector');

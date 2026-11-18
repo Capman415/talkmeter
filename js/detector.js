@@ -108,6 +108,9 @@
     this.debug = {};
     this.samplesProcessed = 0;
     this.speechNet = opts.speechNet || (typeof SpeechNet !== 'undefined' ? (SpeechNet.instance || null) : null);
+    if (opts.speechTh != null && this.speechNet && this.speechNet.setThreshold) {
+      this.speechNet.setThreshold(opts.speechTh);
+    }
     this.speechBuf = new Float32Array(8192);
     this.speechFill = 0;
     this.speechHopAcc = 0;
@@ -394,6 +397,9 @@
 
 
   TalkMeterEngine.prototype.setSpeechNet = function (net) { this.speechNet = net; };
+  TalkMeterEngine.prototype.setSpeechTh = function (th) {
+    if (this.speechNet && this.speechNet.setThreshold) this.speechNet.setThreshold(th);
+  };
 
   TalkMeterEngine.prototype._pushSpeechFrame = function (frame) {
     var hop = TMAudio.HOP;

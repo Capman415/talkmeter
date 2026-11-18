@@ -1,5 +1,5 @@
 /* Talk Meter service worker — caches the app so it keeps working offline after the first load. */
-var CACHE = 'talkmeter-v0.2.0';
+var CACHE = 'talkmeter-v0.3.0';
 var ASSETS = [
   './',
   './index.html',

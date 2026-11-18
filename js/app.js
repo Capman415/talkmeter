@@ -1,9 +1,10 @@
-/* Talk Meter v0.2 — UI, mic, enrollment, SpeechNet gate, live session. Audio never leaves the page. */
+/* Talk Meter v0.3 — UI, mic, enrollment, SpeechNet gate, live session. Audio never leaves the page. */
 (function () {
   'use strict';
 
   var ENROLL_SEC = 10;
   var CAL_SEC = 3;
+  var ROOM_SEC = 30;
   var SIZES = ['compact', 'medium', 'large', 'full'];
   var POSITIONS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
 
@@ -262,6 +263,41 @@
     }
   }
 
+  async function onLearnRoom() {
+    setStatus('room-status', 'Listening for 30 seconds… HVAC can stay on. Nobody talking, and keep board music off.');
+    setProgress('room-progress', 0, true);
+    try {
+      var rec = await collectSeconds(ROOM_SEC, 'room-progress', $('mic-select').value);
+      var floor = TMAudio.noiseFloorFromSamples(rec.samples, rec.sr);
+      var adapted = { speechTh: 0.40, p95Speech: 0, noiseFloor: floor, windows: 0 };
+      if (state.speechNet && state.speechNet.adaptFromRoom) {
+        adapted = state.speechNet.adaptFromRoom(rec.samples, rec.sr, { baseTh: state.speechNet.baseTH || 0.40 });
+        if (adapted.noiseFloor == null) adapted.noiseFloor = floor;
+      }
+      rec.samples = null;
+      TMStore.updateSettings({
+        noiseFloor: adapted.noiseFloor,
+        calibratedAt: new Date().toISOString(),
+        roomSpeechTh: adapted.speechTh,
+        roomP95Speech: adapted.p95Speech,
+        roomLearnedAt: new Date().toISOString(),
+        roomWindows: adapted.windows
+      });
+      var msg = 'Room profile saved as numbers only (' + (adapted.windows || 0) + ' windows). Nothing was recorded. ';
+      if ((adapted.speechTh || 0) <= 0.41) {
+        msg += 'The room sounds quiet to the meter, so I’ll keep the usual voice threshold.';
+      } else {
+        msg += 'Voice threshold is now ' + Number(adapted.speechTh).toFixed(2) + ' so leftover room sound is less likely to count as voices.';
+      }
+      setStatus('room-status', msg);
+      if (state.engine && state.engine.setSpeechTh) state.engine.setSpeechTh(adapted.speechTh);
+      if (state.engine && state.engine.setNoiseFloor) state.engine.setNoiseFloor(adapted.noiseFloor);
+    } catch (err) {
+      setProgress('room-progress', 0, false);
+      setStatus('room-status', (err && err.message) || 'Could not use the microphone.', true);
+    }
+  }
+
   async function onEnroll() {
     setStatus('enroll-status', 'Recording… read the script in your normal voice.');
     setProgress('enroll-progress', 0, true);
@@ -319,7 +355,8 @@
         profile: data.profile,
         sensitivity: data.settings.sensitivity,
         noiseFloor: data.settings.noiseFloor || 0.002,
-        speechNet: state.speechNet
+        speechNet: state.speechNet,
+        speechTh: data.settings.roomSpeechTh
       });
       state.engine.resetSession(0);
       showScreen('live');
@@ -333,7 +370,8 @@
         profile: data.profile,
         sensitivity: data.settings.sensitivity,
         noiseFloor: data.settings.noiseFloor || 0.002,
-        speechNet: state.speechNet
+        speechNet: state.speechNet,
+        speechTh: data.settings.roomSpeechTh
       });
       state.sessionOrigin = performance.now();
       state.engine.resetSession(0);
@@ -442,6 +480,7 @@
       TMStore.updateSettings({ micId: $('mic-select').value });
     });
     $('btn-calibrate').addEventListener('click', onCalibrate);
+    $('btn-learn-room').addEventListener('click', onLearnRoom);
     $('btn-enroll').addEventListener('click', onEnroll);
     $('btn-reenroll').addEventListener('click', function () {
       if (confirm('Replace the voice profile saved on this browser? The old numbers will be deleted. No recordings are kept.')) {
@@ -644,12 +683,17 @@
   }
 
   function loadSpeechNet() {
-    return fetch('assets/speechnet.json?v=0.2.0', { cache: 'no-store' }).then(function (r) {
+    return fetch('assets/speechnet.json?v=0.3.0', { cache: 'no-store' }).then(function (r) {
       if (!r.ok) throw new Error('SpeechNet missing');
       return r.json();
     }).then(function (M) {
       state.speechNet = SpeechNet.load(M);
-      if (state.engine) state.engine.setSpeechNet(state.speechNet);
+      var roomTh = TMStore.load().settings.roomSpeechTh;
+      if (roomTh != null && state.speechNet.setThreshold) state.speechNet.setThreshold(roomTh);
+      if (state.engine) {
+        state.engine.setSpeechNet(state.speechNet);
+        if (roomTh != null && state.engine.setSpeechTh) state.engine.setSpeechTh(roomTh);
+      }
     }).catch(function (err) {
       console.warn('SpeechNet failed to load', err);
     });
@@ -666,8 +710,12 @@
     var params = new URLSearchParams(location.search);
     var shot = params.get('shot');
     if (shot) applyShot(shot);
-    var cal = TMStore.load().settings.calibratedAt;
-    if (cal && !shot) setStatus('cal-status', 'Room noise was calibrated earlier on this browser.');
+    var saved = TMStore.load().settings;
+    if (saved.calibratedAt && !shot) setStatus('cal-status', 'Room noise was calibrated earlier on this browser.');
+    if (saved.roomLearnedAt && !shot) {
+      var th = saved.roomSpeechTh != null ? Number(saved.roomSpeechTh).toFixed(2) : 'default';
+      setStatus('room-status', 'This browser already has a room profile (voice threshold ' + th + '). You can learn the room again if the space changed.');
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

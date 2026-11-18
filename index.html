@@ -20,7 +20,7 @@
           <img class="brand-mark" src="assets/favicon.svg" alt="">
           <div>
             <h1>Talk Meter</h1>
-            <div class="sub">Steady Bots classroom tool · v0.2</div>
+            <div class="sub">Steady Bots classroom tool · v0.3</div>
           </div>
         </div>
         <p class="lead">A small window you can park in the corner of the Smartboard. It watches for voices talking over you — not who is talking — and gives you a count at the end of class.</p>
@@ -39,11 +39,16 @@
         </div>
 
         <div class="block">
-          <h2>2. Calibrate room noise</h2>
-          <p class="lead" style="margin:0 0 8px">Make the room as quiet as you can. Turn Smartboard music off. We’ll listen for 3 seconds to measure background noise.</p>
-          <button type="button" class="btn small" id="btn-calibrate">Calibrate room noise</button>
+          <h2>2. Calibrate the room</h2>
+          <p class="lead" style="margin:0 0 8px">Turn Smartboard music off. A quick 3-second listen measures how loud the room is. Optionally, <strong>Learn my room</strong> listens for 30 seconds and adapts the voice threshold to this room’s usual sounds (HVAC, idle board). We keep only a couple of numbers, never the sound.</p>
+          <div class="btn-row">
+            <button type="button" class="btn small" id="btn-calibrate">Calibrate room noise (3 seconds)</button>
+            <button type="button" class="btn small" id="btn-learn-room">Learn my room (30 seconds)</button>
+          </div>
           <div class="progress" id="cal-progress" hidden><span></span></div>
+          <div class="progress" id="room-progress" hidden><span></span></div>
           <div class="status-line" id="cal-status"></div>
+          <div class="status-line" id="room-status"></div>
         </div>
 
         <div class="block">
@@ -71,7 +76,7 @@
           <label class="check"><input type="checkbox" id="show-hear" checked> Show “what I hear” (Voices / Music / Clapping / Other / Quiet)</label>
           <label class="field" for="character-select">Character</label>
           <select id="character-select"></select>
-          <p class="lead" style="margin:8px 0 0;font-size:13px" id="character-note">v0.1 uses the riveted meter gauge. A cartoon cat (and later a hospital bed / gravestone class-mark) is planned next — the app already has a hook to swap characters.</p>
+          <p class="lead" style="margin:8px 0 0;font-size:13px" id="character-note">The riveted meter gauge is the current view. A cartoon cat (and later a hospital bed / gravestone class-mark) is planned next — the app already has a hook to swap characters.</p>
         </div>
 
         <div class="btn-row" style="margin-top:16px">

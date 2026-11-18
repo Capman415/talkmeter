@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless screenshots of Talk Meter v0.2 screens."""
+"""Headless screenshots of Talk Meter v0.3 screens."""
 import http.server
 import os
 import threading
@@ -8,7 +8,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path('/workspace/talkmeter')
-OUT = Path('/workspace/previews/talkmeter/v0.2')
+OUT = Path('/workspace/previews/talkmeter/v0.3')
 PORT = 8765
 
 SHOTS = [
