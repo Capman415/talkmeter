@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0d1d1b">
+  <title>Talk Meter — Steady Bots</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="screen-setup size-compact pos-bottom-right" data-character="gauge">
+  <div id="backdrop" hidden></div>
+
+  <main id="app">
+    <section id="screen-setup" class="screen">
+      <div class="panel setup-panel">
+        <span class="rivet tl"></span><span class="rivet tr"></span>
+        <span class="rivet bl"></span><span class="rivet br"></span>
+        <div class="brand">
+          <img class="brand-mark" src="assets/favicon.svg" alt="">
+          <div>
+            <h1>Talk Meter</h1>
+            <div class="sub">Steady Bots classroom tool · v0.1</div>
+          </div>
+        </div>
+        <p class="lead">A small window you can park in the corner of the Smartboard. It watches for voices talking over you — not who is talking — and gives you a count at the end of class.</p>
+        <p class="privacy" id="privacy-setup"><strong>Privacy:</strong> No audio is recorded or sent anywhere. Nothing leaves this browser. No names. Only a numeric voice profile and class counts are saved on this device.</p>
+
+        <div class="block">
+          <h2>1. Microphone</h2>
+          <label class="field" for="mic-select">Use the default system mic, or pick one (Onn USB mic is fine if it’s the default).</label>
+          <select id="mic-select">
+            <option value="">Default microphone</option>
+          </select>
+          <div class="btn-row" style="margin-top:10px">
+            <button type="button" class="btn small" id="btn-mic-test">Allow / refresh mics</button>
+          </div>
+          <div class="status-line" id="mic-status"></div>
+        </div>
+
+        <div class="block">
+          <h2>2. Calibrate room noise</h2>
+          <p class="lead" style="margin:0 0 8px">Make the room as quiet as you can. Turn Smartboard music off. We’ll listen for 3 seconds to measure background noise.</p>
+          <button type="button" class="btn small" id="btn-calibrate">Calibrate room noise</button>
+          <div class="progress" id="cal-progress" hidden><span></span></div>
+          <div class="status-line" id="cal-status"></div>
+        </div>
+
+        <div class="block">
+          <h2>3. Record your teaching voice (~10 seconds)</h2>
+          <p class="lead" style="margin:0 0 8px">Read this aloud in your normal teaching voice. We keep only a numeric fingerprint, never the recording.</p>
+          <div class="script-box" id="enroll-script">Good morning, musicians. Eyes on me, please. Listen first, then you’ll echo the rhythm. Ta, ti-ti, tika-tika. Make your voices match mine, and keep a steady beat.</div>
+          <div class="btn-row">
+            <button type="button" class="btn copper" id="btn-enroll">Record my voice (10 seconds)</button>
+            <button type="button" class="btn ghost small" id="btn-reenroll" hidden>Re-enroll</button>
+            <span class="enrolled-pill off" id="enroll-pill">Not enrolled yet</span>
+          </div>
+          <div class="progress" id="enroll-progress" hidden><span></span></div>
+          <div class="status-line" id="enroll-status"></div>
+        </div>
+
+        <div class="block">
+          <h2>4. Sensitivity</h2>
+          <label class="field" for="sensitivity">How easily the meter treats extra voices as chatter (you can change this during class too).</label>
+          <input type="range" id="sensitivity" min="0" max="100" value="50">
+          <div class="status-line" id="sens-label">Medium</div>
+        </div>
+
+        <div class="block">
+          <h2>Display</h2>
+          <label class="field" for="character-select">Character</label>
+          <select id="character-select"></select>
+          <p class="lead" style="margin:8px 0 0;font-size:13px" id="character-note">v0.1 uses the riveted meter gauge. A cartoon cat (and later a hospital bed / gravestone class-mark) is planned next — the app already has a hook to swap characters.</p>
+        </div>
+
+        <div class="btn-row" style="margin-top:16px">
+          <button type="button" class="btn gold" id="btn-start" disabled>Start class</button>
+          <button type="button" class="btn ghost small" id="btn-fullscreen">Full screen</button>
+        </div>
+        <div class="status-line" id="setup-status"></div>
+      </div>
+    </section>
+
+    <section id="screen-live" class="screen">
+      <div id="meter-panel" class="panel">
+        <span class="rivet tl"></span><span class="rivet tr"></span>
+        <span class="rivet bl"></span><span class="rivet br"></span>
+        <div class="meter-head">
+          <div>
+            <h1>Talk Meter</h1>
+            <div class="live-sub">Chatter while you talk</div>
+          </div>
+          <div class="icon-btns">
+            <button type="button" class="btn ghost small" id="btn-size" title="Size">Size</button>
+            <button type="button" class="btn ghost small" id="btn-corner" title="Corner">Corner</button>
+            <button type="button" class="btn ghost small" id="btn-live-fs" title="Full screen">FS</button>
+            <button type="button" class="btn ghost small" id="btn-settings" title="Setup">Setup</button>
+          </div>
+        </div>
+
+        <div id="character-stage" data-character="gauge">
+          <div data-character-panel="gauge" class="gauge-wrap">
+            <div class="gauge-house">
+              <div class="gauge-cap"></div>
+              <div class="gauge-tube" data-level="quiet">
+                <div class="gauge-fill" id="gauge-fill"></div>
+                <div class="gauge-gloss"></div>
+                <div class="gauge-ticks" aria-hidden="true">
+                  <i style="top:0"></i><i style="top:25%"></i><i style="top:50%"></i><i style="top:75%"></i><i style="top:100%"></i>
+                </div>
+              </div>
+              <div class="gauge-readout" id="gauge-readout">0%</div>
+            </div>
+            <div class="gauge-side">
+              <div class="pill" id="status-pill" data-status="listening">Listening</div>
+              <div class="stat">
+                <div class="k">Chatter starts</div>
+                <div class="v" id="stat-starts">0</div>
+              </div>
+              <div class="stat">
+                <div class="k">Voices (rough)</div>
+                <div class="v" id="stat-voices">quiet</div>
+                <div class="hint">Rough estimate — not an exact count</div>
+              </div>
+              <div class="stat">
+                <div class="k">Usual delay</div>
+                <div class="v" id="stat-delay">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="live-controls">
+          <button type="button" class="btn copper" id="btn-end">End class</button>
+        </div>
+        <div class="live-tools">
+          <label class="field" for="sensitivity-live" style="margin:0;flex:1;min-width:140px">Sensitivity
+            <input type="range" id="sensitivity-live" min="0" max="100" value="50">
+          </label>
+        </div>
+        <p class="privacy" id="privacy-live"><strong>Privacy:</strong> No audio is recorded or sent. Nothing leaves this browser. No names.</p>
+      </div>
+    </section>
+
+    <section id="screen-summary" class="screen">
+      <div class="panel summary-panel">
+        <span class="rivet tl"></span><span class="rivet tr"></span>
+        <span class="rivet bl"></span><span class="rivet br"></span>
+        <div class="brand">
+          <img class="brand-mark" src="assets/favicon.svg" alt="">
+          <div>
+            <h1>Class report</h1>
+            <div class="sub">Saved only in this browser</div>
+          </div>
+        </div>
+        <div class="summary-hero" id="summary-text">Chatter never started while you were talking.</div>
+        <div class="block">
+          <h2>This class</h2>
+          <div id="summary-details"></div>
+        </div>
+        <div class="block">
+          <h2>Trend (this browser)</h2>
+          <div class="bars" id="trend-bars" aria-hidden="true"></div>
+          <table class="hist-table" id="hist-table">
+            <thead>
+              <tr><th>When</th><th>Starts</th><th>Usual delay</th><th>Length</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn gold" id="btn-new-class">New class</button>
+          <button type="button" class="btn" id="btn-export">Export CSV</button>
+          <button type="button" class="btn ghost" id="btn-clear-hist">Clear history</button>
+          <button type="button" class="btn ghost small" id="btn-back-setup">Setup</button>
+        </div>
+        <p class="privacy" style="margin-top:16px"><strong>Privacy:</strong> No audio is recorded or sent anywhere. This report is counts and times only, stored on this device.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/audio.js"></script>
+  <script src="js/detector.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/characters.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
